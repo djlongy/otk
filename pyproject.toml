@@ -1,0 +1,11 @@
+[project]
+name = "otk"
+version = "0.1.0"
+description = "Move OCI images across a one-way link with their digests intact"
+requires-python = ">=3.11"
+
+[project.scripts]
+otk = "otk.cli:main"
+
+[tool.setuptools]
+packages = ["otk"]

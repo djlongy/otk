@@ -1,0 +1,40 @@
+spec:
+  inputs:
+    image:
+      description: otk image, pinned by digest. Build it from the repo Dockerfile.
+    config:
+      description: Path of otk.toml in the consuming project.
+      default: otk.toml
+    stage:
+      default: deploy
+    runner-tag:
+      description: Tag of a runner that mounts the persistent otk work dir and outbox named in the config.
+      default: otk
+---
+# otk plan on merge requests shows the tag -> digest map the change would send.
+# otk pack on the default branch writes the next pack to the outbox NiFi watches.
+# One pack job at a time: the ledger has a single writer.
+.otk:
+  image:
+    name: $[[ inputs.image ]]
+    entrypoint: [""]
+  stage: $[[ inputs.stage ]]
+  tags:
+    - $[[ inputs.runner-tag ]]
+  variables:
+    REGISTRY_AUTH_FILE: $OTK_AUTHFILE
+
+otk-plan:
+  extends: .otk
+  script:
+    - otk plan -c "$[[ inputs.config ]]"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+otk-pack:
+  extends: .otk
+  resource_group: otk-pack
+  script:
+    - otk pack -c "$[[ inputs.config ]]"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

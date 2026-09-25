@@ -1,0 +1,96 @@
+# otk lab: a low-side Quay with a pull-through cache, a high-side Quay, one NiFi per side, and a
+# folder standing in for the one-way link. Only nifi-low writes to data/diode; only nifi-high reads it.
+#   ports: low Quay 28081, high Quay 28082, NiFi low 28090, NiFi high 28091 (all overridable)
+name: otk-lab
+
+x-quay: &quay
+  image: quay.io/projectquay/quay:3.15.7@sha256:a523422c690ae8e2623635d7284194b367a1782a4a7f14bd6cda6acd81b604ed
+  environment: {WORKER_COUNT_WEB: "2", WORKER_COUNT_REGISTRY: "2", WORKER_COUNT_SECSCAN: "1"}
+  healthcheck:
+    test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/v2/ | grep -q 401"]
+    interval: 15s
+    retries: 40
+    start_period: 60s
+
+x-pg: &pg
+  image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
+  environment: {POSTGRES_USER: quay, POSTGRES_PASSWORD: quaypass, POSTGRES_DB: quay}
+  healthcheck: {test: ["CMD-SHELL", "pg_isready -U quay"], interval: 5s, retries: 20}
+
+x-redis: &redis
+  image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+
+x-nifi: &nifi
+  image: apache/nifi:2.5.0@sha256:3f9a22fda8a9bd8a13e2ed1009ce484ccaca781feb7b21b3ef73d57562867295
+  user: "1000:1000"
+  healthcheck:
+    test: ["CMD-SHELL", "curl -ks https://$$(hostname):8443/nifi-api/access/config >/dev/null"]
+    interval: 15s
+    retries: 40
+    start_period: 60s
+
+services:
+  low-db: {<<: *pg, volumes: [low-db:/var/lib/postgresql/data, ./quay/pg-init.sh:/docker-entrypoint-initdb.d/init.sh:ro]}
+  low-redis: *redis
+  low-quay:
+    <<: *quay
+    depends_on: {low-db: {condition: service_healthy}, low-redis: {condition: service_started}}
+    ports: ["${LOW_PORT:-28081}:8080"]
+    volumes: [./quay/low:/conf/stack, low-storage:/datastorage]
+
+  high-db: {<<: *pg, volumes: [high-db:/var/lib/postgresql/data, ./quay/pg-init.sh:/docker-entrypoint-initdb.d/init.sh:ro]}
+  high-redis: *redis
+  high-quay:
+    <<: *quay
+    depends_on: {high-db: {condition: service_healthy}, high-redis: {condition: service_started}}
+    ports: ["${HIGH_PORT:-28082}:8080"]
+    volumes: [./quay/high:/conf/stack, high-storage:/datastorage]
+
+  nifi-low:
+    <<: *nifi
+    environment:
+      SINGLE_USER_CREDENTIALS_USERNAME: admin
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:-otk-lab-nifi-admin}
+      NIFI_WEB_PROXY_HOST: localhost:${NIFI_LOW_PORT:-28090}
+      NIFI_JVM_HEAP_MAX: 1g
+    ports: ["${NIFI_LOW_PORT:-28090}:8443"]
+    volumes: [./data/outbox:/otk/outbox, ./data/diode:/otk/diode, nifi-low-conf:/opt/nifi/nifi-current/conf,
+              nifi-low-repo:/opt/nifi/nifi-current/flowfile_repository, nifi-low-content:/opt/nifi/nifi-current/content_repository]
+  nifi-high:
+    <<: *nifi
+    environment:
+      SINGLE_USER_CREDENTIALS_USERNAME: admin
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:-otk-lab-nifi-admin}
+      NIFI_WEB_PROXY_HOST: localhost:${NIFI_HIGH_PORT:-28091}
+      NIFI_JVM_HEAP_MAX: 1g
+    ports: ["${NIFI_HIGH_PORT:-28091}:8443"]
+    volumes: [./data/diode:/otk/diode, ./data/inbox:/otk/inbox, nifi-high-conf:/opt/nifi/nifi-current/conf,
+              nifi-high-repo:/opt/nifi/nifi-current/flowfile_repository, nifi-high-content:/opt/nifi/nifi-current/content_repository]
+
+  # Low side packer: run on demand, `docker compose run --rm otk-low pack`.
+  otk-low:
+    build: ..
+    image: otk:dev
+    profiles: [tools]
+    environment: {REGISTRY_AUTH_FILE: /otk/auth/low.json}
+    volumes: [./otk-low.toml:/work/otk.toml:ro, ./data/outbox:/otk/outbox, ./.state/low:/otk/work, ./.state/auth:/otk/auth:ro]
+  # High side importer: polls the inbox NiFi fills.
+  otk-high:
+    build: ..
+    image: otk:dev
+    command: ["import", "--watch", "--interval", "15"]
+    environment: {REGISTRY_AUTH_FILE: /otk/auth/high.json}
+    volumes: [./otk-high.toml:/work/otk.toml:ro, ./data/inbox:/otk/inbox, ./.state/high:/otk/work, ./.state/auth:/otk/auth:ro]
+    depends_on: {high-quay: {condition: service_healthy}}
+
+volumes:
+  low-db: {}
+  low-storage: {}
+  high-db: {}
+  high-storage: {}
+  nifi-low-conf: {}
+  nifi-low-repo: {}
+  nifi-low-content: {}
+  nifi-high-conf: {}
+  nifi-high-repo: {}
+  nifi-high-content: {}

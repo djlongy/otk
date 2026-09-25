@@ -1,0 +1,18 @@
+# Low side of the lab. Sources are pulled through the proxy-hub organisation, a pull-through cache of docker.io.
+[low]
+registry = "low-quay:8080"
+tls_verify = false
+authfile = "/otk/auth/low.json"
+work_dir = "/otk/work"
+outbox = "/otk/outbox"
+prune = true
+
+[[images]]
+source = "proxy-hub/library/alpine"
+target = "hub/library/alpine"
+tags = ["3.20.3", "3.21.3", "latest"]
+
+[[images]]
+source = "proxy-hub/library/redis"
+target = "hub/library/redis"
+tags = ["7.4.1-alpine"]

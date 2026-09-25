@@ -1,0 +1,8 @@
+.agent/
+.agents/
+__pycache__/
+*.pyc
+.venv/
+lab/.state/
+lab/quay/*/config.yaml
+lab/data/

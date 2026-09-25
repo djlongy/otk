@@ -1,0 +1,7 @@
+[high]
+registry = "high-quay:8080"
+tls_verify = false
+authfile = "/otk/auth/high.json"
+work_dir = "/otk/work"
+inbox = "/otk/inbox"
+max_delete_pct = 50
