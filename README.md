@@ -1,13 +1,15 @@
 # otk
 
 Offline transfer kit: moves container images from a low-side registry across a one-way link to a
-high-side registry with manifest digests, platforms and tags unchanged. Start with [QUICKSTART.md](QUICKSTART.md).
+high-side registry with manifest digests, platforms and tags unchanged. It speaks the OCI distribution API
+through skopeo, so any compliant registry works on either side. Start with [QUICKSTART.md](QUICKSTART.md).
 
 ## Contents
 
 - [`otk/`](otk/README.md): the `otk` command. Packs images on the low side, imports and reconciles on the high side.
 - [`nifi/`](nifi/README.md): NiFi flows that carry packs to and from the one-way link, one per side.
 - [`ci/gitlab/`](ci/gitlab/README.md): GitLab CI template that plans on merge requests and packs on the default branch.
+- [`registries/quay/`](registries/quay/README.md): least-privilege Quay service account for pull-through plus push, including Keycloak/OIDC Quay.
 - [`lab/`](lab/README.md): compose lab with both registries, both NiFis and a folder standing in for the link, plus the end-to-end test.
 - [`Dockerfile`](Dockerfile): the `otk` image, skopeo and Python on a pinned base, used by CI, the lab and any container runtime.
 

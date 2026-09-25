@@ -1,0 +1,30 @@
+# Proves the service-account recipe on a Quay whose users come from Keycloak (AUTHENTICATION_TYPE: OIDC).
+# Everything talks by service name on the compose network, so the scripted "browser" in test.py runs in-network.
+name: otk-oidc
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3@sha256:6a7217a100bd3e5de4063a27a538ef999a3c5a88c4b4ec0ffc0a642aee7b2597
+    command: ["start-dev", "--https-port=8443", "--hostname=https://keycloak:8443",
+              "--https-certificate-file=/tls/kc.crt", "--https-certificate-key-file=/tls/kc.key"]
+    volumes: [./.state/tls:/tls:ro]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-otk-lab-kc-admin}
+  db:
+    image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
+    environment: {POSTGRES_USER: quay, POSTGRES_PASSWORD: quaypass, POSTGRES_DB: quay}
+    volumes: [./pg-init.sh:/docker-entrypoint-initdb.d/init.sh:ro]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U quay"], interval: 5s, retries: 20}
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+  quay:
+    image: quay.io/projectquay/quay:3.15.7@sha256:a523422c690ae8e2623635d7284194b367a1782a4a7f14bd6cda6acd81b604ed
+    environment: {WORKER_COUNT_WEB: "2", WORKER_COUNT_REGISTRY: "2", WORKER_COUNT_SECSCAN: "1"}
+    depends_on: {db: {condition: service_healthy}, redis: {condition: service_started}}
+    volumes: [./.state/quay:/conf/stack]
+  tester:
+    image: otk:dev
+    entrypoint: ["sleep", "infinity"]
+    environment: {SSL_CERT_FILE: /tls/ca.crt}
+    volumes: [./test.py:/test.py:ro, ./.state/tls:/tls:ro]
